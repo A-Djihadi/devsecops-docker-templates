@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1
 
 FROM node:20-alpine AS build
 
@@ -19,14 +19,19 @@ FROM nginx:1.27-alpine AS runtime
 LABEL org.opencontainers.image.title="angular-template" \
       org.opencontainers.image.description="Secure multi-stage Angular Docker template"
 
+ARG APP_UID=1000
+ARG APP_GID=1000
 ARG BUILD_OUTPUT=dist/app/browser
+
+RUN addgroup -S appgroup -g ${APP_GID} && \
+    adduser -S -u ${APP_UID} -G appgroup appuser
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/${BUILD_OUTPUT}/ /usr/share/nginx/html/
 
-RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/run /var/log/nginx
+RUN chown -R appuser:appgroup /usr/share/nginx/html /var/cache/nginx /var/run /var/log/nginx
 
-USER nginx
+USER appuser:appgroup
 
 EXPOSE 8080
 

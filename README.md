@@ -52,8 +52,9 @@ En production stricte, vous pouvez aller plus loin avec des images distroless po
 
 Les conteneurs ne tournent pas en root:
 
-- Java cree un utilisateur applicatif dedie.
-- Nginx ecoute sur le port `8080`, compatible avec un processus non-root.
+- Java cree un utilisateur applicatif dedie avec UID/GID explicites.
+- Angular et React utilisent un utilisateur runtime non-root pour servir les assets.
+- Nginx ecoute sur le port `8080` afin d'eviter le besoin de privileges root.
 
 Cette pratique limite l'impact d'une compromission applicative.
 
@@ -75,7 +76,7 @@ Les Dockerfiles exposent uniquement le port necessaire:
 - Java Spring Boot: `8080`
 - Angular / React via Nginx: `8080`
 
-`EXPOSE` documente l'intention, mais ne publie pas le port tout seul. La publication reste controlee au runtime.
+`EXPOSE` documente l'intention et aide les outils de build/orchestration, mais ne publie pas le port tout seul. La publication reste controlee au runtime.
 
 ### 6. Configuration Nginx durcie
 
@@ -113,6 +114,8 @@ docker build -f java-spring-boot/Dockerfile -t spring-app:local .
 docker run --rm -p 8080:8080 spring-app:local
 ```
 
+Les options JVM doivent etre injectees au runtime via Compose, Kubernetes ou la ligne de commande, plutôt que d'etre bakées dans l'image.
+
 Le Dockerfile attend:
 
 - `pom.xml`
@@ -128,6 +131,8 @@ docker build -f angular/Dockerfile -t angular-app:local .
 docker run --rm -p 8080:8080 angular-app:local
 ```
 
+L'image finale reste agnostique: la definition `BUILD_CONFIGURATION=production` correspond uniquement a la configuration de build Angular. Le comportement runtime doit etre gere par votre code, votre configuration Nginx ou votre plateforme d'orchestration, et non par l'image seule.
+
 Si votre dossier de sortie Angular differe, adaptez l'argument:
 
 ```bash
@@ -142,6 +147,8 @@ Depuis la racine d'un projet React:
 docker build -f react/Dockerfile -t react-app:local .
 docker run --rm -p 8080:8080 react-app:local
 ```
+
+Cette image utilise un build-time `NODE_ENV=production` pour generer les assets. L'image reste toutefois runtime-agnostique: les parametres d'execution et les definitions d'environnement doivent etre apportes par la plateforme d'orchestration ou la configuration externe.
 
 Pour Create React App, utilisez souvent:
 
