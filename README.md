@@ -23,6 +23,13 @@ L'objectif est de construire des images legeres, reproductibles et securisees, e
 |   |-- Dockerfile
 |   |-- nginx.conf
 |   `-- .dockerignore
+|-- compose/
+|   |-- docker-compose.yml
+|   |-- docker-compose.override.yml
+|   |-- .env.example
+|   `-- nginx/
+|       |-- nginx.conf
+|       `-- default.conf
 `-- .github/workflows/security-scan.yml
 ```
 
@@ -157,6 +164,47 @@ docker build -f react/Dockerfile --build-arg BUILD_OUTPUT=build -t react-app:loc
 ```
 
 Pour Vite, la valeur par defaut `dist` convient generalement.
+
+## Orchestration Docker Compose
+
+Le template `compose/` orchestre une stack complete `proxy -> app -> db` avec les memes pratiques DevSecOps que les Dockerfiles:
+
+```
+Internet
+   | :80
+   v
+ proxy (nginx)          — seul service expose, reverse proxy vers l'app
+   |
+   v
+ app (image parametrable) — port interne 8080, jamais expose en production
+   |
+   v
+ db (PostgreSQL)        — accessible uniquement par l'app via le reseau interne
+```
+
+Fichiers:
+
+- `compose/docker-compose.yml` — stack production: reseau isole `app-net`, volumes nommes, healthchecks, `depends_on: condition: service_healthy`, `restart: unless-stopped`, images figees (`postgres:16.16-alpine`, `nginx:1.27-alpine`), conteneurs non-root avec filesystem racine en lecture seule (`read_only: true` + `tmpfs`).
+- `compose/docker-compose.override.yml` — surcharges de developpement: build local, montage des sources pour le hot-reload, ports exposes, `restart: "no"`.
+- `compose/.env.example` — schema de variables. Copiez-le en `.env` et renseignez les valeurs.
+- `compose/nginx/default.conf` — reverse proxy `proxy_pass` vers `app:8080`, avec les memes en-tetes de securite que les templates frontend (Angular/React).
+- `compose/nginx/nginx.conf` — configuration nginx principale non-root: pid/temp sur tmpfs, logs sur stdout/stderr.
+
+Demarrage:
+
+```bash
+cd compose
+cp .env.example .env   # puis renseignez les valeurs
+docker compose up -d
+```
+
+En developpement, `docker compose up -d` fusionne automatiquement le fichier override; en production, ignorez-le:
+
+```bash
+docker compose -f docker-compose.yml up -d
+```
+
+Le fichier `.env` n'est jamais commite (deja couvert par le `.gitignore` du depot). Les secrets (`DB_PASSWORD`, ...) ne sont jamais hardcodes dans les templates: injectez-les via le fichier `.env` non versionne ou, en production, via un gestionnaire de secrets (Docker Secrets, Vault, SOPS...).
 
 ## Optimisation des images
 

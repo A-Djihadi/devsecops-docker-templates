@@ -3,4 +3,6 @@ Thumbs.db
 *.log
 .env
 .env.*
+# Keep the template schema committable — real env files (`.env`, `.env.*`) stay ignored.
+!.env.example
 
