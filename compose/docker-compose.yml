@@ -1,0 +1,99 @@
+# Docker Compose template — production-ready, DevSecOps-aligned.
+#
+# Copy this file into your project, fill in `.env` (see `.env.example`), then run:
+#   docker compose up -d
+#
+# Conventions:
+#   - Isolated bridge network: only the `proxy` service is published to the host.
+#   - Named volumes: data persists outside the container lifecycle.
+#   - restart: unless-stopped: automatic restart except on manual stop.
+#   - Explicit, pinned image tags (see `.env.example`).
+#   - Non-root containers with read-only root filesystems where possible.
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  db-data:
+  app-logs:
+
+services:
+
+  # ─── Application ──────────────────────────────────────────────────────────
+  app:
+    image: ${APP_IMAGE:-myapp:1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-myproject}-app
+    restart: unless-stopped
+    # Non-root runtime user — matches the repo templates (UID/GID 1000).
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    # Hardened runtime: read-only root filesystem, writable /tmp only.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    env_file: .env
+    networks:
+      - app-net
+    volumes:
+      - app-logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080${APP_HEALTHCHECK_PATH:-/healthz}"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  # ─── Database ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16.16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-myproject}-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  # ─── Reverse proxy ────────────────────────────────────────────────────────
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-myproject}-proxy
+    restart: unless-stopped
+    # Non-root nginx: master runs as `nginx` (see the custom main config in
+    # nginx/nginx.conf which moves pid/temp paths onto tmpfs and logs to
+    # stdout/stderr, allowing a read-only root filesystem).
+    user: nginx
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m,mode=1777
+      - /tmp:size=64m,mode=1777
+    ports:
+      # Only the proxy is published to the outside — never app nor db.
+      # The container listens on the unprivileged port 8080.
+      - "${PROXY_PORT:-80}:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - app-net
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
